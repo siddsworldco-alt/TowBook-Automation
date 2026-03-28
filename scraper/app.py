@@ -31,7 +31,12 @@ def make_driver():
         "safebrowsing.enabled": True,
     })
     service = Service("/usr/bin/chromedriver")
-    return webdriver.Chrome(service=service, options=opts)
+    driver = webdriver.Chrome(service=service, options=opts)
+    driver.execute_cdp_cmd("Page.setDownloadBehavior", {
+        "behavior": "allow",
+        "downloadPath": DOWNLOAD_DIR
+    })
+    return driver
 
 def js_set_value(driver, element_id, value):
     driver.execute_script(
