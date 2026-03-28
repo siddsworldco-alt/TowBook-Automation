@@ -1,10 +1,3 @@
-"""
-Towbook Scraper — Flask API
-POST /scrape  → runs Selenium, saves combined_invoices.csv to /app/output/
-GET  /health  → returns {"status": "ok"}
-GET  /status  → returns info about last run (csv exists, row count, etc)
-"""
-
 import os, time, re, json, glob, csv
 from datetime import datetime
 from flask import Flask, jsonify
@@ -19,11 +12,9 @@ app = Flask(__name__)
 
 USERNAME = os.getenv("TOWBOOK_USERNAME")
 PASSWORD = os.getenv("TOWBOOK_PASSWORD")
-
 DOWNLOAD_DIR = "/app/output/csv_downloads"
 COMBINED_CSV = "/app/output/combined_invoices.csv"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
 
 def make_driver():
     opts = Options()
@@ -31,27 +22,38 @@ def make_driver():
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-gpu")
-    opts.add_argument("--window-size=1920,1080")
-    opts.binary_location = os.getenv("CHROME_BIN", "/usr/bin/chromium")
+    opts.add_argument("--no-zygote")
+    opts.add_argument("--single-process")
+    opts.binary_location = "/usr/bin/chromium"
     opts.add_experimental_option("prefs", {
         "download.default_directory": DOWNLOAD_DIR,
         "download.prompt_for_download": False,
         "safebrowsing.enabled": True,
     })
-    service = Service(os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver"))
+    service = Service("/usr/bin/chromedriver")
     return webdriver.Chrome(service=service, options=opts)
 
-
 def js_set_value(driver, element_id, value):
-    driver.execute_script("""
-        var el = document.getElementById(arguments[0]);
-        if (!el) return;
-        var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        setter.call(el, arguments[1]);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-    """, element_id, value)
+    driver.execute_script(
+        "var el=document.getElementById(arguments[0]);"
+        "var s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;"
+        "s.call(el,arguments[1]);"
+        "el.dispatchEvent(new Event('input',{bubbles:true}));"
+        "el.dispatchEvent(new Event('change',{bubbles:true}));",
+        element_id, value
+    )
 
+def dismiss_overlay(driver):
+    try:
+        driver.execute_script("""
+            var bar = document.getElementById('callRequestsBar');
+            if (bar) bar.style.display = 'none';
+            var overlays = document.querySelectorAll('.modal, .overlay, .popup');
+            overlays.forEach(function(el) { el.style.display = 'none'; });
+        """)
+        time.sleep(0.5)
+    except:
+        pass
 
 def wait_for_page_ready(driver, timeout=60):
     end_time = time.time() + timeout
@@ -65,7 +67,6 @@ def wait_for_page_ready(driver, timeout=60):
         time.sleep(0.5)
     return False
 
-
 def wait_for_csv(download_dir, existing_files, timeout=60):
     end_time = time.time() + timeout
     while time.time() < end_time:
@@ -77,10 +78,11 @@ def wait_for_csv(download_dir, existing_files, timeout=60):
         time.sleep(1)
     return None
 
+def clean_name(name):
+    return re.sub(r'<[^>]+>', '', name).strip()
 
 def run_scraper():
-    driver = make_driver()
-    wait = WebDriverWait(driver, 20)
+    driver = None
     results = {
         "accounts": [],
         "csv_path": None,
@@ -88,21 +90,25 @@ def run_scraper():
         "errors": [],
         "timestamp": datetime.utcnow().isoformat()
     }
-
     try:
-        # ── Login ──────────────────────────────────────────────────────
-        print("[scraper] Logging in...")
+        print("[scraper] Starting Chrome...")
+        driver = make_driver()
+        wait = WebDriverWait(driver, 20)
+
+        print("[scraper] Navigating to Towbook...")
         driver.get("https://app.towbook.com/")
         time.sleep(3)
+
+        print("[scraper] Logging in...")
         wait.until(EC.element_to_be_clickable((By.ID, "Username")))
         js_set_value(driver, "Username", USERNAME)
         js_set_value(driver, "Password", PASSWORD)
         time.sleep(1)
         wait.until(EC.element_to_be_clickable((By.NAME, "bSignIn"))).click()
-        wait.until(EC.url_changes("https://app.towbook.com/"))
-        print("[scraper] Login successful")
+        time.sleep(3)
+        print(f"[scraper] Logged in — {driver.current_url}")
 
-        # ── Accounts page ──────────────────────────────────────────────
+        print("[scraper] Loading accounts page...")
         driver.get("https://app.towbook.com/Accounts/")
         wait_for_page_ready(driver)
         time.sleep(3)
@@ -126,44 +132,56 @@ def run_scraper():
         if grid_data and not grid_data.startswith("ERROR") and grid_data != "NO_GRID_FOUND":
             for rec in json.loads(grid_data):
                 bal = str(rec.get("balance", "")).strip()
-                if bal and bal not in ["0", "0.00", "$0.00"]:
-                    accounts_with_balances.append((rec["name"], rec["id"], bal))
-                    print(f"[scraper] Found account: {rec['name']} | {bal}")
+                name = clean_name(rec.get("name", ""))
+                if bal and bal not in ["0", "0.00", "$0.00"] and name:
+                    accounts_with_balances.append((name, rec["id"], bal))
+                    print(f"[scraper] Found: {name} | {bal}")
         else:
             results["errors"].append({"step": "grid_extract", "error": grid_data})
 
         print(f"[scraper] {len(accounts_with_balances)} accounts with balances")
 
-        # ── Per-account CSV export ─────────────────────────────────────
         downloaded_csvs = []
         for idx, (name, acc_id, bal) in enumerate(accounts_with_balances):
             print(f"[scraper] [{idx+1}/{len(accounts_with_balances)}] {name}")
             try:
                 driver.get(f"https://app.towbook.com/Accounts/Account.aspx?id={acc_id}")
                 wait_for_page_ready(driver)
+                time.sleep(2)
+                dismiss_overlay(driver)
 
-                wait.until(EC.element_to_be_clickable(
-                    (By.XPATH, "//a[@title='Unpaid'] | //a[contains(text(), 'Unpaid')]")
-                )).click()
+                clicked = driver.execute_script("""
+                    var links = document.querySelectorAll('a');
+                    for (var i = 0; i < links.length; i++) {
+                        if (links[i].title === 'Unpaid' || links[i].textContent.trim() === 'Unpaid') {
+                            links[i].click();
+                            return true;
+                        }
+                    }
+                    return false;
+                """)
+                print(f"[scraper] Unpaid clicked: {clicked}")
                 time.sleep(2)
 
-                wait.until(EC.element_to_be_clickable(
-                    (By.ID, "grid_callsGrid_check_all")
-                )).click()
+                try:
+                    wait.until(EC.presence_of_element_located((By.ID, "grid_callsGrid_check_all")))
+                    driver.execute_script("document.getElementById('grid_callsGrid_check_all').click();")
+                except Exception as e:
+                    print(f"[scraper] Select all error: {e}")
 
                 existing = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.csv")))
 
-                for xpath in [
-                    "//a[text()='Export']",
-                    "//*[contains(text(), 'Export')]",
-                    "//td[text()='Export']"
-                ]:
-                    try:
-                        btn = driver.find_element(By.XPATH, xpath)
-                        driver.execute_script("arguments[0].click();", btn)
-                        break
-                    except:
-                        continue
+                exported = driver.execute_script("""
+                    var els = document.querySelectorAll('a, td, button');
+                    for (var i = 0; i < els.length; i++) {
+                        if (els[i].textContent.trim() === 'Export') {
+                            els[i].click();
+                            return true;
+                        }
+                    }
+                    return false;
+                """)
+                print(f"[scraper] Export clicked: {exported}")
 
                 csv_file = wait_for_csv(DOWNLOAD_DIR, existing)
                 if csv_file:
@@ -172,15 +190,15 @@ def run_scraper():
                     os.rename(csv_file, new_path)
                     downloaded_csvs.append((name, acc_id, bal, new_path))
                     results["accounts"].append({"name": name, "id": acc_id, "balance": bal})
-                    print(f"[scraper] ✅ CSV saved for {name}")
+                    print(f"[scraper] CSV saved for {name}")
                 else:
+                    print(f"[scraper] No CSV for {name}")
                     results["errors"].append({"account": name, "error": "CSV download timed out"})
 
             except Exception as e:
-                print(f"[scraper] ❌ Error on {name}: {e}")
+                print(f"[scraper] Error on {name}: {e}")
                 results["errors"].append({"account": name, "error": str(e)})
 
-        # ── Combine all CSVs ───────────────────────────────────────────
         if downloaded_csvs:
             print("[scraper] Combining CSVs...")
             all_data = []
@@ -197,7 +215,6 @@ def run_scraper():
                             all_data.append([name, aid, bal] + row)
                 except Exception as e:
                     results["errors"].append({"account": name, "error": str(e)})
-
             if all_data:
                 with open(COMBINED_CSV, "w", newline="", encoding="utf-8") as f:
                     w = csv.writer(f)
@@ -205,28 +222,25 @@ def run_scraper():
                     w.writerows(all_data)
                 results["csv_path"] = COMBINED_CSV
                 results["row_count"] = len(all_data)
-                print(f"[scraper] ✅ Combined CSV saved — {len(all_data)} rows")
+                print(f"[scraper] Done — {len(all_data)} rows")
 
     except Exception as e:
-        print(f"[scraper] ❌ Fatal error: {e}")
+        import traceback
+        print(f"[scraper] Fatal: {traceback.format_exc()}")
         results["errors"].append({"step": "fatal", "error": str(e)})
     finally:
-        driver.quit()
+        if driver:
+            driver.quit()
 
     results["success"] = results.get("csv_path") is not None
     return results
-
-
-# ── Endpoints ────────────────────────────────────────────────────────────
 
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
 
-
 @app.route("/status", methods=["GET"])
 def status():
-    """Check if a CSV exists from the last run"""
     exists = os.path.exists(COMBINED_CSV)
     info = {"csv_exists": exists}
     if exists:
@@ -234,20 +248,13 @@ def status():
         info["size_bytes"] = stat.st_size
         info["last_modified"] = datetime.utcfromtimestamp(stat.st_mtime).isoformat()
         with open(COMBINED_CSV, "r", encoding="utf-8") as f:
-            info["row_count"] = sum(1 for _ in f) - 1  # minus header
+            info["row_count"] = sum(1 for _ in f) - 1
     return jsonify(info)
-
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
-    """
-    Main endpoint — n8n calls this.
-    Returns JSON summary. CSV is saved to /app/output/combined_invoices.csv
-    which n8n can read via the shared Docker volume.
-    """
     data = run_scraper()
     return jsonify(data), 200 if data["success"] else 500
-
 
 if __name__ == "__main__":
     print("[scraper] Starting Flask on port 5050...")
