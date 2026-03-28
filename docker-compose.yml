@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  scraper:
+    build: ./scraper
+    container_name: towbook-scraper
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "5050:5050"
+    volumes:
+      - scraper_output:/app/output
+    networks:
+      - towbook-net
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: towbook-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    env_file: .env
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=changeme123
+      - GENERIC_TIMEZONE=Pacific/Auckland
+      - TZ=Pacific/Auckland
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - scraper_output:/app/output
+    networks:
+      - towbook-net
+    depends_on:
+      - scraper
+
+volumes:
+  n8n_data:
+  scraper_output:
+
+networks:
+  towbook-net:
+    driver: bridge

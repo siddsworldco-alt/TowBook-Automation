@@ -1,0 +1,97 @@
+{
+  "name": "Towbook Weekly Invoice Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every Friday 9am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 300],
+      "notes": "Runs every Friday at 9am NZT. Change timezone in n8n Settings."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://scraper:5050/scrape",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "http-scrape",
+      "name": "Run Towbook Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [420, 300],
+      "notes": "Calls the Flask scraper container. Timeout 5 mins to allow Chrome to finish. Returns JSON with accounts list + row_count."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-success",
+      "name": "Scrape Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [640, 300],
+      "notes": "TRUE path → CSV is ready at /app/output/combined_invoices.csv\nFALSE path → something went wrong, check errors in $json.errors"
+    },
+    {
+      "parameters": {
+        "filePath": "/app/output/combined_invoices.csv"
+      },
+      "id": "read-csv",
+      "name": "Read CSV File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [860, 180],
+      "notes": "CSV is now available as binary data. Add your next steps here — email, Google Sheets, Slack, etc."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log the error details for debugging\nconst errors = $json.errors || [];\nconsole.log('Scraper failed:', JSON.stringify(errors, null, 2));\nreturn $input.all();"
+      },
+      "id": "log-error",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 420],
+      "notes": "Check n8n execution logs to see what went wrong.\nYou can replace this with a Slack/email alert."
+    }
+  ],
+  "connections": {
+    "Every Friday 9am": {
+      "main": [[{ "node": "Run Towbook Scraper", "type": "main", "index": 0 }]]
+    },
+    "Run Towbook Scraper": {
+      "main": [[{ "node": "Scrape Succeeded?", "type": "main", "index": 0 }]]
+    },
+    "Scrape Succeeded?": {
+      "main": [
+        [{ "node": "Read CSV File", "type": "main", "index": 0 }],
+        [{ "node": "Log Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "tags": ["towbook", "weekly", "invoices"]
+}
