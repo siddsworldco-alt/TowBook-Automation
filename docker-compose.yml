@@ -12,6 +12,7 @@ services:
       - "5050:5050"
     volumes:
       - scraper_output:/app/output
+      - ./contacts.csv:/app/output/contacts.csv:ro
     shm_size: '2gb'
     networks:
       - towbook-net
