@@ -6,6 +6,8 @@ services:
     container_name: towbook-scraper
     restart: unless-stopped
     env_file: .env
+    environment:
+      - N8N_PROGRESS_WEBHOOK_URL=http://n8n:5678/webhook/scraper-progress
     ports:
       - "5050:5050"
     volumes:
@@ -22,8 +24,9 @@ services:
     env_file: .env
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=changeme123
+      - N8N_BASIC_AUTH_USER=${N8N_ADMIN_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_ADMIN_PASSWORD:-changeme123}
+      - N8N_SECURE_COOKIE=false
       - GENERIC_TIMEZONE=Pacific/Auckland
       - TZ=Pacific/Auckland
     volumes:

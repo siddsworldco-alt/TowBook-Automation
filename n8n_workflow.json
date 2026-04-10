@@ -16,63 +16,158 @@
       "name": "Every Friday 9am",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [200, 300],
-      "notes": "Runs every Friday at 9am NZT. Change timezone in n8n Settings."
+      "position": [200, 300]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "http://scraper:5050/scrape",
         "options": {
-          "timeout": 300000
+          "timeout": 600000
         }
       },
       "id": "http-scrape",
       "name": "Run Towbook Scraper",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [420, 300],
-      "notes": "Calls the Flask scraper container. Timeout 5 mins to allow Chrome to finish. Returns JSON with accounts list + row_count."
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "accounts",
+        "options": {}
+      },
+      "id": "split-accounts",
+      "name": "Split Accounts",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 3,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "filePath": "/app/output/contacts.csv"
+      },
+      "id": "read-contacts",
+      "name": "Read Contacts CSV",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [420, 500],
+      "notes": "Create a file named contacts.csv in your output folder with: AccountName,Owner,Email"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "parse-contacts",
+      "name": "Parse Contacts",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [640, 500]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByFields",
+        "commonField": "name",
+        "commonFieldOther": "AccountName",
+        "options": {
+          "clashHandling": "preferInput1"
+        }
+      },
+      "id": "merge-contact",
+      "name": "Match Contact",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [860, 300]
     },
     {
       "parameters": {
         "conditions": {
-          "boolean": [
+          "string": [
             {
-              "value1": "={{ $json.success }}",
-              "value2": true
+              "value1": "={{ $json.Email }}",
+              "operation": "isNotEmpty"
             }
           ]
         }
       },
-      "id": "check-success",
-      "name": "Scrape Succeeded?",
+      "id": "check-email",
+      "name": "Has Email?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [640, 300],
-      "notes": "TRUE path → CSV is ready at /app/output/combined_invoices.csv\nFALSE path → something went wrong, check errors in $json.errors"
+      "position": [1080, 300]
     },
     {
       "parameters": {
-        "filePath": "/app/output/combined_invoices.csv"
+        "method": "POST",
+        "url": "http://n8n:5678/webhook/scraper-progress",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message",
+              "value": "=ERROR: No email found for account: {{ $json.name }}. Please update contacts.csv"
+            },
+            {
+              "name": "status",
+              "value": "warning"
+            }
+          ]
+        },
+        "options": {}
       },
-      "id": "read-csv",
-      "name": "Read CSV File",
+      "id": "log-missing-email",
+      "name": "Log Missing Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, 420]
+    },
+    {
+      "parameters": {
+        "filePath": "=/app/output/csv_downloads/{{ $json.filename }}"
+      },
+      "id": "read-acc-csv",
+      "name": "Read Individual CSV",
       "type": "n8n-nodes-base.readBinaryFile",
       "typeVersion": 1,
-      "position": [860, 180],
-      "notes": "CSV is now available as binary data. Add your next steps here — email, Google Sheets, Slack, etc."
+      "position": [1300, 180]
     },
     {
       "parameters": {
-        "jsCode": "// Log the error details for debugging\nconst errors = $json.errors || [];\nconsole.log('Scraper failed:', JSON.stringify(errors, null, 2));\nreturn $input.all();"
+        "fromEmail": "reports@yourvps.com",
+        "toEmail": "={{ $json.Email }}",
+        "subject": "=Unpaid Invoice Report: {{ $json.name }}",
+        "text": "=Hi {{ $json.Owner || 'there' }},\n\nPlease find attached the unpaid invoice report for {{ $json.name }}.\n\nTotal Balance: {{ $json.balance }}\n\nRegards,\nAutomation Bot",
+        "attachments": "data",
+        "options": {}
       },
-      "id": "log-error",
-      "name": "Log Error",
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1520, 180]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "scraper-progress",
+        "options": {}
+      },
+      "id": "webhook-progress",
+      "name": "Scraper Progress Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [200, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log(`[PROGRESS] ${$json.body.message}`);\nreturn $input.all();"
+      },
+      "id": "log-progress",
+      "name": "Log Progress",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [860, 420],
-      "notes": "Check n8n execution logs to see what went wrong.\nYou can replace this with a Slack/email alert."
+      "position": [420, 100]
     }
   ],
   "connections": {
@@ -80,18 +175,35 @@
       "main": [[{ "node": "Run Towbook Scraper", "type": "main", "index": 0 }]]
     },
     "Run Towbook Scraper": {
-      "main": [[{ "node": "Scrape Succeeded?", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Split Accounts", "type": "main", "index": 0 }]]
     },
-    "Scrape Succeeded?": {
+    "Split Accounts": {
+      "main": [[{ "node": "Match Contact", "type": "main", "index": 0 }]]
+    },
+    "Read Contacts CSV": {
+      "main": [[{ "node": "Parse Contacts", "type": "main", "index": 0 }]]
+    },
+    "Parse Contacts": {
+      "main": [[{ "node": "Match Contact", "type": "main", "index": 1 }]]
+    },
+    "Match Contact": {
+      "main": [[{ "node": "Has Email?", "type": "main", "index": 0 }]]
+    },
+    "Has Email?": {
       "main": [
-        [{ "node": "Read CSV File", "type": "main", "index": 0 }],
-        [{ "node": "Log Error", "type": "main", "index": 0 }]
+        [{ "node": "Read Individual CSV", "type": "main", "index": 0 }],
+        [{ "node": "Log Missing Email", "type": "main", "index": 0 }]
       ]
+    },
+    "Read Individual CSV": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    },
+    "Scraper Progress Webhook": {
+      "main": [[{ "node": "Log Progress", "type": "main", "index": 0 }]]
     }
   },
   "settings": {
     "executionOrder": "v1",
     "saveManualExecutions": true
-  },
-  "tags": ["towbook", "weekly", "invoices"]
+  }
 }
