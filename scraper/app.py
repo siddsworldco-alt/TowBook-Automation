@@ -54,12 +54,17 @@ def make_driver():
     opts.add_argument("--disable-gpu")
     opts.add_argument("--window-size=1920,1080")
     opts.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    opts.add_argument("--user-data-dir=/tmp/chrome-user-data")
+    opts.add_argument("--remote-debugging-port=9222")
     opts.binary_location = "/usr/bin/chromium"
-    opts.add_experimental_option("prefs", {
+    prefs = {
         "download.default_directory": DOWNLOAD_DIR,
         "download.prompt_for_download": False,
-        "safebrowsing.enabled": True,
-    })
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": False,
+        "safebrowsing.disable_download_protection": True,
+    }
+    opts.add_experimental_option("prefs", prefs)
     service = Service("/usr/bin/chromedriver")
     driver = webdriver.Chrome(service=service, options=opts)
     driver.execute_cdp_cmd("Page.setDownloadBehavior", {
@@ -102,15 +107,21 @@ def wait_for_page_ready(driver, timeout=60):
         time.sleep(0.5)
     return False
 
-def wait_for_csv(download_dir, existing_files, timeout=60):
+def wait_for_csv(download_dir, existing_files, timeout=120):
     end_time = time.time() + timeout
     while time.time() < end_time:
         current = set(glob.glob(os.path.join(download_dir, "*.csv")))
         new = current - existing_files
-        if new and not glob.glob(os.path.join(download_dir, "*.crdownload")):
+        crdownloads = glob.glob(os.path.join(download_dir, "*.crdownload"))
+        if new and not crdownloads:
             time.sleep(1)
             return list(new)[0]
-        time.sleep(1)
+        if crdownloads:
+            print(f"[scraper-log] Download in progress: {crdownloads}")
+        time.sleep(2)
+    # List what is actually in the directory on timeout
+    all_files = os.listdir(download_dir)
+    print(f"[scraper-log] Timeout! Files in download dir: {all_files}")
     return None
 
 def clean_name(name):
