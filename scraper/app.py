@@ -113,17 +113,28 @@ def wait_for_page_ready(driver, timeout=60):
 
 
 def wait_for_csv(download_dir, existing_files, timeout=120):
+    """Wait for a new CSV, searching multiple possible Chrome download locations."""
+    search_dirs = [download_dir, "/root/Downloads", "/root", "/tmp"]
     end_time = time.time() + timeout
     while time.time() < end_time:
-        current = set(glob.glob(os.path.join(download_dir, "*.csv")))
-        new = current - existing_files
-        crdownloads = glob.glob(os.path.join(download_dir, "*.crdownload"))
-        if new and not crdownloads:
-            time.sleep(1)
-            return list(new)[0]
+        for search_dir in search_dirs:
+            if not os.path.exists(search_dir):
+                continue
+            current = set(glob.glob(os.path.join(search_dir, "*.csv")))
+            new = current - existing_files if search_dir == download_dir else current
+            crdownloads = glob.glob(os.path.join(search_dir, "*.crdownload")) + glob.glob(os.path.join(search_dir, "*.tmp"))
+            if new and not crdownloads:
+                time.sleep(1)
+                path = list(new)[0]
+                print(f"[INFO] Found CSV at: {path}", flush=True)
+                if search_dir != download_dir:
+                    dest = os.path.join(download_dir, os.path.basename(path))
+                    os.rename(path, dest)
+                    return dest
+                return path
         time.sleep(2)
     all_files = os.listdir(download_dir)
-    print(f"[WARN] Download timed out. Files in dir: {all_files}", flush=True)
+    print(f"[WARN] Download timed out. Files in download dir: {all_files}", flush=True)
     return None
 
 
