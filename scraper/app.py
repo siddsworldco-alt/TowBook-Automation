@@ -19,10 +19,10 @@ SCREENSHOT_DIR = "/app/output/screenshots"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
+
 def send_update(message, status="info", data=None):
-    print(f"[scraper-log] {status.upper()}: {message}")
+    print(f"[{status.upper()}] {message}", flush=True)
     if not PROGRESS_WEBHOOK_URL:
-        print("[scraper-log] No webhook URL configured, skipping.")
         return
     try:
         payload = {
@@ -33,18 +33,20 @@ def send_update(message, status="info", data=None):
         }
         requests.post(PROGRESS_WEBHOOK_URL, json=payload, timeout=5)
     except Exception as e:
-        print(f"[ERROR] Failed to send update to n8n: {e}")
+        print(f"[WARN] Could not send update to n8n: {e}", flush=True)
+
 
 def take_screenshot(driver, name):
     try:
         timestamp = datetime.now().strftime("%H-%M-%S")
         path = os.path.join(SCREENSHOT_DIR, f"{timestamp}_{name}.png")
         driver.save_screenshot(path)
-        print(f"[scraper] Screenshot saved: {path}")
+        print(f"[INFO] Screenshot saved: {path}", flush=True)
         return path
     except Exception as e:
-        print(f"[scraper] Failed to save screenshot: {e}")
+        print(f"[WARN] Failed to save screenshot: {e}", flush=True)
         return None
+
 
 def make_driver():
     opts = Options()
@@ -53,18 +55,16 @@ def make_driver():
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-gpu")
     opts.add_argument("--window-size=1920,1080")
-    opts.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    opts.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     opts.add_argument("--user-data-dir=/tmp/chrome-user-data")
-    opts.add_argument("--remote-debugging-port=9222")
     opts.binary_location = "/usr/bin/chromium"
-    prefs = {
+    opts.add_experimental_option("prefs", {
         "download.default_directory": DOWNLOAD_DIR,
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
         "safebrowsing.enabled": False,
         "safebrowsing.disable_download_protection": True,
-    }
-    opts.add_experimental_option("prefs", prefs)
+    })
     service = Service("/usr/bin/chromedriver")
     driver = webdriver.Chrome(service=service, options=opts)
     driver.execute_cdp_cmd("Page.setDownloadBehavior", {
@@ -72,6 +72,7 @@ def make_driver():
         "downloadPath": DOWNLOAD_DIR
     })
     return driver
+
 
 def js_set_value(driver, element_id, value):
     driver.execute_script(
@@ -83,17 +84,20 @@ def js_set_value(driver, element_id, value):
         element_id, value
     )
 
+
 def dismiss_overlay(driver):
     try:
         driver.execute_script("""
             var bar = document.getElementById('callRequestsBar');
             if (bar) bar.style.display = 'none';
-            var overlays = document.querySelectorAll('.modal, .overlay, .popup');
-            overlays.forEach(function(el) { el.style.display = 'none'; });
+            document.querySelectorAll('.modal, .overlay, .popup').forEach(function(el) {
+                el.style.display = 'none';
+            });
         """)
         time.sleep(0.5)
     except:
         pass
+
 
 def wait_for_page_ready(driver, timeout=60):
     end_time = time.time() + timeout
@@ -107,6 +111,7 @@ def wait_for_page_ready(driver, timeout=60):
         time.sleep(0.5)
     return False
 
+
 def wait_for_csv(download_dir, existing_files, timeout=120):
     end_time = time.time() + timeout
     while time.time() < end_time:
@@ -116,16 +121,15 @@ def wait_for_csv(download_dir, existing_files, timeout=120):
         if new and not crdownloads:
             time.sleep(1)
             return list(new)[0]
-        if crdownloads:
-            print(f"[scraper-log] Download in progress: {crdownloads}")
         time.sleep(2)
-    # List what is actually in the directory on timeout
     all_files = os.listdir(download_dir)
-    print(f"[scraper-log] Timeout! Files in download dir: {all_files}")
+    print(f"[WARN] Download timed out. Files in dir: {all_files}", flush=True)
     return None
+
 
 def clean_name(name):
     return re.sub(r'<[^>]+>', '', name).strip()
+
 
 def run_scraper():
     driver = None
@@ -143,26 +147,29 @@ def run_scraper():
 
         send_update("Navigating to Towbook login page...", "process")
         driver.get("https://app.towbook.com/")
-        
+
         send_update("Entering credentials...", "process")
         try:
-            username_field = wait.until(EC.element_to_be_clickable((By.ID, "Username")))
+            wait.until(EC.element_to_be_clickable((By.ID, "Username")))
             js_set_value(driver, "Username", USERNAME)
             js_set_value(driver, "Password", PASSWORD)
             wait.until(EC.element_to_be_clickable((By.NAME, "bSignIn"))).click()
+            # Wait for the page to fully redirect away from login
+            time.sleep(5)
         except Exception as e:
             take_screenshot(driver, "login_failed")
-            raise Exception(f"Login elements not found or clickable: {e}")
+            raise Exception(f"Login failed: {e}")
 
-        if "login" in driver.current_url.lower():
+        if "login" in driver.current_url.lower() or "signin" in driver.current_url.lower():
             take_screenshot(driver, "auth_failed")
-            raise Exception("Still on login page after clicking sign-in. Check credentials or CAPTCHA.")
+            raise Exception("Still on login page after sign-in. Check credentials.")
 
-        send_update(f"Successfully logged in.", "success")
+        send_update("Successfully logged in.", "success")
 
         send_update("Loading Accounts page...", "process")
         driver.get("https://app.towbook.com/Accounts/")
         wait_for_page_ready(driver)
+        time.sleep(2)
 
         send_update("Extracting accounts with balances...", "process")
         grid_data = driver.execute_script("""
@@ -198,10 +205,11 @@ def run_scraper():
         downloaded_csvs = []
         for idx, (name, acc_id, bal) in enumerate(accounts_with_balances):
             progress = f"[{idx+1}/{total_acc}]"
-            send_update(f"{progress} Processing account: {name} (Balance: {bal})", "process")
+            send_update(f"{progress} Processing: {name} (Balance: {bal})", "process")
             try:
                 driver.get(f"https://app.towbook.com/Accounts/Account.aspx?id={acc_id}")
                 wait_for_page_ready(driver)
+                time.sleep(2)
                 dismiss_overlay(driver)
 
                 clicked = driver.execute_script("""
@@ -216,14 +224,15 @@ def run_scraper():
                 """)
                 if not clicked:
                     send_update(f"{progress} Warning: 'Unpaid' tab not found for {name}", "warning")
-                
+
                 time.sleep(2)
 
                 try:
                     wait.until(EC.presence_of_element_located((By.ID, "grid_callsGrid_check_all")))
                     driver.execute_script("document.getElementById('grid_callsGrid_check_all').click();")
-                except Exception as e:
-                    send_update(f"{progress} Note: Could not find 'select all' checkbox for {name}", "info")
+                    time.sleep(1)
+                except Exception:
+                    send_update(f"{progress} Note: No 'select all' checkbox for {name}", "info")
 
                 existing = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.csv")))
 
@@ -237,7 +246,7 @@ def run_scraper():
                     }
                     return false;
                 """)
-                
+
                 if not exported:
                     send_update(f"{progress} Error: 'Export' button not found for {name}", "error")
                     take_screenshot(driver, f"export_missing_{acc_id}")
@@ -250,18 +259,18 @@ def run_scraper():
                     os.rename(csv_file, new_path)
                     downloaded_csvs.append((name, acc_id, bal, new_path))
                     results["accounts"].append({
-                        "name": name, 
-                        "id": acc_id, 
+                        "name": name,
+                        "id": acc_id,
                         "balance": bal,
                         "filename": f"{safe}_{acc_id}.csv"
                     })
                     send_update(f"{progress} CSV downloaded for {name}", "success")
                 else:
-                    send_update(f"{progress} Timeout waiting for CSV download: {name}", "error")
+                    send_update(f"{progress} CSV download timed out for {name}", "error")
                     results["errors"].append({"account": name, "error": "CSV download timed out"})
 
             except Exception as e:
-                send_update(f"{progress} Error on account {name}: {str(e)}", "error")
+                send_update(f"{progress} Error on {name}: {str(e)}", "error")
                 results["errors"].append({"account": name, "error": str(e)})
 
         if downloaded_csvs:
@@ -272,14 +281,15 @@ def run_scraper():
                 try:
                     with open(path, "r", encoding="utf-8-sig") as f:
                         rows = list(csv.reader(f))
-                        if not rows: continue
+                        if not rows:
+                            continue
                         if headers is None:
                             headers = ["Account", "AccountID", "AccountBalance"] + rows[0]
                         for row in rows[1:]:
                             all_data.append([name, aid, bal] + row)
                 except Exception as e:
                     results["errors"].append({"account": name, "error": f"Merge error: {e}"})
-            
+
             if all_data:
                 with open(COMBINED_CSV, "w", newline="", encoding="utf-8") as f:
                     w = csv.writer(f)
@@ -287,13 +297,14 @@ def run_scraper():
                     w.writerows(all_data)
                 results["csv_path"] = COMBINED_CSV
                 results["row_count"] = len(all_data)
-                send_update(f"Job complete! Combined {len(all_data)} total rows.", "finish", {"rows": len(all_data)})
+                send_update(f"Done! Combined {len(all_data)} rows from {len(downloaded_csvs)} accounts.", "finish", {"rows": len(all_data)})
+        else:
+            send_update("No CSVs were downloaded.", "error")
 
     except Exception as e:
         import traceback
-        err_msg = f"Fatal scrapier error: {str(e)}"
-        send_update(err_msg, "fatal")
-        print(traceback.format_exc())
+        send_update(f"Fatal error: {str(e)}", "fatal")
+        print(traceback.format_exc(), flush=True)
         results["errors"].append({"step": "fatal", "error": str(e)})
     finally:
         if driver:
@@ -302,9 +313,11 @@ def run_scraper():
     results["success"] = results.get("csv_path") is not None
     return results
 
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
 
 @app.route("/status", methods=["GET"])
 def status():
@@ -318,18 +331,18 @@ def status():
             info["row_count"] = sum(1 for _ in f) - 1
     return jsonify(info)
 
+
 @app.route("/scrape", methods=["POST"])
 def scrape():
-    print("[FLASK] !!! EMERGENCY LOG: ROUTE HIT !!!")
-    print("[flask] Scrape request received! Starting run_scraper...")
+    print("[INFO] Scrape request received.", flush=True)
     try:
         data = run_scraper()
-        print("[flask] Scrape completed successfully.")
-        return jsonify(data)
+        return jsonify(data), 200 if data["success"] else 500
     except Exception as e:
-        print(f"[flask] Fatal error during scrape: {e}")
+        print(f"[ERROR] Fatal: {e}", flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 if __name__ == "__main__":
-    print("[scraper] Starting Flask on port 5050 with threading enabled...")
+    print("[INFO] Starting scraper on port 5050...", flush=True)
     app.run(host="0.0.0.0", port=5050, threaded=True)

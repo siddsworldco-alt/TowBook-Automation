@@ -13,7 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 
-RUN mkdir -p /app/output/csv_downloads
+RUN mkdir -p /app/output/csv_downloads /app/output/screenshots /tmp/chrome-user-data \
+    && chmod -R 777 /app/output /tmp/chrome-user-data
 
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver

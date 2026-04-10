@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   scraper:
     build: ./scraper
@@ -14,14 +12,6 @@ services:
       - scraper_output:/app/output
       - ./contacts.csv:/app/output/contacts.csv:ro
     shm_size: '2gb'
-    networks:
-      - towbook-net
-
-  debug-test:
-    build: ./scraper
-    command: python debug_app.py
-    ports:
-      - "5051:5051"
     networks:
       - towbook-net
 
