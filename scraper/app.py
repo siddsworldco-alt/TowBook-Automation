@@ -309,6 +309,7 @@ def status():
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
+    print("[FLASK] !!! EMERGENCY LOG: ROUTE HIT !!!")
     print("[flask] Scrape request received! Starting run_scraper...")
     try:
         data = run_scraper()
@@ -319,5 +320,5 @@ def scrape():
         return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
-    print("[scraper] Starting Flask on port 5050...")
-    app.run(host="0.0.0.0", port=5050)
+    print("[scraper] Starting Flask on port 5050 with threading enabled...")
+    app.run(host="0.0.0.0", port=5050, threaded=True)
