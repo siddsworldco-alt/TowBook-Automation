@@ -236,16 +236,25 @@ def run_scraper():
 
                 existing = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.csv")))
 
+                # Screenshot BEFORE export to see page state
+                take_screenshot(driver, f"before_export_{acc_id}")
+
                 exported = driver.execute_script("""
                     var els = document.querySelectorAll('a, td, button');
                     for (var i = 0; i < els.length; i++) {
                         if (els[i].textContent.trim() === 'Export') {
                             els[i].click();
-                            return true;
+                            return 'clicked:' + els[i].tagName + '-' + els[i].className;
                         }
                     }
                     return false;
                 """)
+
+                print(f"[INFO] Export result: {exported}", flush=True)
+                time.sleep(3)
+
+                # Screenshot AFTER export to see if a dialog appeared
+                take_screenshot(driver, f"after_export_{acc_id}")
 
                 if not exported:
                     send_update(f"{progress} Error: 'Export' button not found for {name}", "error")
