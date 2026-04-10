@@ -17,5 +17,6 @@ RUN mkdir -p /app/output/csv_downloads
 
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "app.py"]
+CMD ["python", "-u", "app.py"]
