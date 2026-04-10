@@ -17,6 +17,14 @@ services:
     networks:
       - towbook-net
 
+  debug-test:
+    build: ./scraper
+    command: python debug_app.py
+    ports:
+      - "5051:5051"
+    networks:
+      - towbook-net
+
   n8n:
     image: n8nio/n8n:latest
     container_name: towbook-n8n
