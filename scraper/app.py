@@ -247,6 +247,7 @@ def run_scraper():
 
                 # Enable network logging to intercept the download URL
                 driver.execute_cdp_cmd("Network.enable", {})
+                existing = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.csv")))
 
                 # Click the Export button
                 export_clicked = driver.execute_script("""
@@ -306,10 +307,13 @@ def run_scraper():
                     csv_file = wait_for_csv(DOWNLOAD_DIR, existing)
 
                 if csv_file:
+                    # If already at final path (requests download), just register it
                     safe = re.sub(r"[^\w\-]", "_", name)
-                    new_path = os.path.join(DOWNLOAD_DIR, f"{safe}_{acc_id}.csv")
-                    os.rename(csv_file, new_path)
-                    downloaded_csvs.append((name, acc_id, bal, new_path))
+                    final_path = os.path.join(DOWNLOAD_DIR, f"{safe}_{acc_id}.csv")
+                    if csv_file != final_path and os.path.exists(csv_file):
+                        os.rename(csv_file, final_path)
+                    csv_file = final_path
+                    downloaded_csvs.append((name, acc_id, bal, csv_file))
                     results["accounts"].append({
                         "name": name,
                         "id": acc_id,
