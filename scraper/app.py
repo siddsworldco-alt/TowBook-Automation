@@ -245,48 +245,66 @@ def run_scraper():
                 except Exception:
                     send_update(f"{progress} Note: No 'select all' checkbox for {name}", "info")
 
-                existing = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.csv")))
+                # Enable network logging to intercept the download URL
+                driver.execute_cdp_cmd("Network.enable", {})
 
-                # Step 1: Click the Export button (may open a sub-menu)
+                # Click the Export button
                 export_clicked = driver.execute_script("""
                     var els = document.querySelectorAll('a, td, button, li, span');
                     for (var i = 0; i < els.length; i++) {
                         var t = els[i].textContent.trim();
                         if (t === 'Export' || t === 'Export CSV' || t === 'Export to CSV') {
                             els[i].click();
-                            return 'clicked:' + els[i].tagName + ':' + (els[i].className || '');
+                            return 'clicked:' + els[i].tagName;
                         }
                     }
                     return false;
                 """)
-                print(f"[INFO] Export click result: {export_clicked}", flush=True)
+                print(f"[INFO] Export click: {export_clicked}", flush=True)
 
                 if not export_clicked:
                     send_update(f"{progress} Error: 'Export' button not found for {name}", "error")
                     take_screenshot(driver, f"export_missing_{acc_id}")
                     continue
 
-                # Step 2: Wait for sub-menu to appear, then look for CSV option
-                time.sleep(2)
-                csv_clicked = driver.execute_script("""
-                    var els = document.querySelectorAll('a, li, button, td, span, div');
-                    for (var i = 0; i < els.length; i++) {
-                        var t = els[i].textContent.trim().toLowerCase();
-                        if (t === 'csv' || t === 'export to csv' || t === 'export as csv'
-                            || t === 'download csv' || t.indexOf('.csv') !== -1) {
-                            els[i].click();
-                            return 'csv-clicked:' + els[i].tagName + ':' + els[i].textContent.trim();
+                # Wait and capture the download URL from network logs
+                time.sleep(3)
+                download_url = driver.execute_script("""
+                    var logs = window.performance.getEntriesByType('resource');
+                    for (var i = logs.length - 1; i >= 0; i--) {
+                        var url = logs[i].name;
+                        if (url.indexOf('Export') !== -1 || url.indexOf('export') !== -1
+                            || url.indexOf('Report') !== -1 || url.indexOf('Download') !== -1
+                            || url.indexOf('download') !== -1 || url.indexOf('.csv') !== -1) {
+                            return url;
                         }
                     }
-                    // If no CSV sub-option found, check if first click was enough
-                    return 'no-csv-submenu';
+                    return null;
                 """)
-                print(f"[INFO] CSV sub-menu result: {csv_clicked}", flush=True)
+                print(f"[INFO] Intercepted download URL: {download_url}", flush=True)
 
-                # Take screenshot to see page state after clicking
-                take_screenshot(driver, f"after_export_{acc_id}")
+                # If we got a URL, download it via requests with session cookies
+                if download_url:
+                    cookies = {c['name']: c['value'] for c in driver.get_cookies()}
+                    safe = re.sub(r"[^\w\-]", "_", name)
+                    dest_path = os.path.join(DOWNLOAD_DIR, f"{safe}_{acc_id}.csv")
+                    try:
+                        r = requests.get(download_url, cookies=cookies, timeout=60, stream=True)
+                        r.raise_for_status()
+                        with open(dest_path, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        print(f"[INFO] Downloaded via requests to: {dest_path}", flush=True)
+                        csv_file = dest_path
+                    except Exception as e:
+                        print(f"[WARN] Requests download failed: {e}", flush=True)
+                        csv_file = None
+                else:
+                    # Fallback: wait for filesystem download
+                    print("[INFO] No URL intercepted, falling back to filesystem wait...", flush=True)
+                    take_screenshot(driver, f"after_export_{acc_id}")
+                    csv_file = wait_for_csv(DOWNLOAD_DIR, existing)
 
-                csv_file = wait_for_csv(DOWNLOAD_DIR, existing)
                 if csv_file:
                     safe = re.sub(r"[^\w\-]", "_", name)
                     new_path = os.path.join(DOWNLOAD_DIR, f"{safe}_{acc_id}.csv")
