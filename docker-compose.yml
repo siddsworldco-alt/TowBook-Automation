@@ -12,6 +12,7 @@ services:
       - "5050:5050"
     volumes:
       - scraper_output:/app/output
+    shm_size: '2gb'
     networks:
       - towbook-net
 
