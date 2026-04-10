@@ -20,8 +20,9 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
 def send_update(message, status="info", data=None):
-    print(f"[{status.upper()}] {message}")
+    print(f"[scraper-log] {status.upper()}: {message}")
     if not PROGRESS_WEBHOOK_URL:
+        print("[scraper-log] No webhook URL configured, skipping.")
         return
     try:
         payload = {
@@ -308,8 +309,14 @@ def status():
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
-    data = run_scraper()
-    return jsonify(data), 200 if data["success"] else 500
+    print("[flask] Scrape request received! Starting run_scraper...")
+    try:
+        data = run_scraper()
+        print("[flask] Scrape completed successfully.")
+        return jsonify(data)
+    except Exception as e:
+        print(f"[flask] Fatal error during scrape: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
     print("[scraper] Starting Flask on port 5050...")
