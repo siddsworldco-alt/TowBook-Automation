@@ -236,30 +236,44 @@ def run_scraper():
 
                 existing = set(glob.glob(os.path.join(DOWNLOAD_DIR, "*.csv")))
 
-                # Screenshot BEFORE export to see page state
-                take_screenshot(driver, f"before_export_{acc_id}")
-
-                exported = driver.execute_script("""
-                    var els = document.querySelectorAll('a, td, button');
+                # Step 1: Click the Export button (may open a sub-menu)
+                export_clicked = driver.execute_script("""
+                    var els = document.querySelectorAll('a, td, button, li, span');
                     for (var i = 0; i < els.length; i++) {
-                        if (els[i].textContent.trim() === 'Export') {
+                        var t = els[i].textContent.trim();
+                        if (t === 'Export' || t === 'Export CSV' || t === 'Export to CSV') {
                             els[i].click();
-                            return 'clicked:' + els[i].tagName + '-' + els[i].className;
+                            return 'clicked:' + els[i].tagName + ':' + (els[i].className || '');
                         }
                     }
                     return false;
                 """)
+                print(f"[INFO] Export click result: {export_clicked}", flush=True)
 
-                print(f"[INFO] Export result: {exported}", flush=True)
-                time.sleep(3)
-
-                # Screenshot AFTER export to see if a dialog appeared
-                take_screenshot(driver, f"after_export_{acc_id}")
-
-                if not exported:
+                if not export_clicked:
                     send_update(f"{progress} Error: 'Export' button not found for {name}", "error")
                     take_screenshot(driver, f"export_missing_{acc_id}")
                     continue
+
+                # Step 2: Wait for sub-menu to appear, then look for CSV option
+                time.sleep(2)
+                csv_clicked = driver.execute_script("""
+                    var els = document.querySelectorAll('a, li, button, td, span, div');
+                    for (var i = 0; i < els.length; i++) {
+                        var t = els[i].textContent.trim().toLowerCase();
+                        if (t === 'csv' || t === 'export to csv' || t === 'export as csv'
+                            || t === 'download csv' || t.indexOf('.csv') !== -1) {
+                            els[i].click();
+                            return 'csv-clicked:' + els[i].tagName + ':' + els[i].textContent.trim();
+                        }
+                    }
+                    // If no CSV sub-option found, check if first click was enough
+                    return 'no-csv-submenu';
+                """)
+                print(f"[INFO] CSV sub-menu result: {csv_clicked}", flush=True)
+
+                # Take screenshot to see page state after clicking
+                take_screenshot(driver, f"after_export_{acc_id}")
 
                 csv_file = wait_for_csv(DOWNLOAD_DIR, existing)
                 if csv_file:
