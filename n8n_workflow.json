@@ -1,5 +1,5 @@
 {
-  "name": "Towbook Weekly Invoice Automater",
+  "name": "Towbook Weekly Invoice Automater (Sheets Mapping)",
   "nodes": [
     {
       "parameters": {
@@ -45,23 +45,30 @@
     },
     {
       "parameters": {
-        "filePath": "/app/output/contacts.csv"
-      },
-      "id": "read-contacts",
-      "name": "Read Contacts CSV",
-      "type": "n8n-nodes-base.readBinaryFile",
-      "typeVersion": 1,
-      "position": [420, 500]
-    },
-    {
-      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_CONTACTS_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Contacts"
+        },
         "options": {}
       },
-      "id": "parse-contacts",
-      "name": "Parse Contacts",
-      "type": "n8n-nodes-base.extractFromFile",
-      "typeVersion": 1,
-      "position": [640, 500]
+      "id": "get-contacts",
+      "name": "Get Contacts from Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [640, 500],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "provider": "googleSheetsOAuth2Api"
+        }
+      }
     },
     {
       "parameters": {
@@ -145,12 +152,12 @@
         "documentId": {
           "__rl": true,
           "mode": "id",
-          "value": "YOUR_GOOGLE_SHEET_ID"
+          "value": "YOUR_REPORT_SHEET_ID"
         },
         "sheetName": {
           "__rl": true,
           "mode": "name",
-          "value": "Sheet1"
+          "value": "WeeklyReports"
         },
         "columns": {
           "mappingMode": "autoMapInputData",
@@ -158,8 +165,8 @@
         },
         "options": {}
       },
-      "id": "google-sheets",
-      "name": "Google Sheets",
+      "id": "google-sheets-out",
+      "name": "Google Sheets (Append)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [1740, 300],
@@ -203,10 +210,7 @@
     "Split Accounts": {
       "main": [[{ "node": "Match Contact", "type": "main", "index": 0 }]]
     },
-    "Read Contacts CSV": {
-      "main": [[{ "node": "Parse Contacts", "type": "main", "index": 0 }]]
-    },
-    "Parse Contacts": {
+    "Get Contacts from Sheets": {
       "main": [[{ "node": "Match Contact", "type": "main", "index": 1 }]]
     },
     "Match Contact": {
@@ -227,7 +231,7 @@
       ]
     },
     "Parse Invoice CSV": {
-      "main": [[{ "node": "google-sheets", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "google-sheets-out", "type": "main", "index": 0 }]]
     },
     "Scraper Progress Webhook": {
       "main": [[{ "node": "Log Progress", "type": "main", "index": 0 }]]
