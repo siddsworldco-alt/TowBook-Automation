@@ -309,7 +309,9 @@ def run_scraper():
                 if csv_file:
                     # If already at final path (requests download), just register it
                     safe = re.sub(r"[^\w\-]", "_", name)
-                    final_path = os.path.join(DOWNLOAD_DIR, f"{safe}_{acc_id}.csv")
+                    date_str = datetime.now().strftime("%Y-%m-%d")
+                    filename = f"{safe}_{acc_id}_{date_str}.csv"
+                    final_path = os.path.join(DOWNLOAD_DIR, filename)
                     if csv_file != final_path and os.path.exists(csv_file):
                         os.rename(csv_file, final_path)
                     csv_file = final_path
@@ -318,7 +320,7 @@ def run_scraper():
                         "name": name,
                         "id": acc_id,
                         "balance": bal,
-                        "filename": f"{safe}_{acc_id}.csv"
+                        "filename": filename
                     })
                     send_update(f"{progress} CSV downloaded for {name}", "success")
                 else:

@@ -1,5 +1,5 @@
 {
-  "name": "Towbook Weekly Invoice Scraper",
+  "name": "Towbook Weekly Invoice Automater",
   "nodes": [
     {
       "parameters": {
@@ -51,8 +51,7 @@
       "name": "Read Contacts CSV",
       "type": "n8n-nodes-base.readBinaryFile",
       "typeVersion": 1,
-      "position": [420, 500],
-      "notes": "Create a file named contacts.csv in your output folder with: AccountName,Owner,Email"
+      "position": [420, 500]
     },
     {
       "parameters": {
@@ -99,31 +98,6 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "http://n8n:5678/webhook/scraper-progress",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "message",
-              "value": "=ERROR: No email found for account: {{ $json.name }}. Please update contacts.csv"
-            },
-            {
-              "name": "status",
-              "value": "warning"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "log-missing-email",
-      "name": "Log Missing Email",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1300, 420]
-    },
-    {
-      "parameters": {
         "filePath": "=/app/output/csv_downloads/{{ $json.filename }}"
       },
       "id": "read-acc-csv",
@@ -134,18 +108,67 @@
     },
     {
       "parameters": {
-        "fromEmail": "reports@yourvps.com",
+        "fromEmail": "notification@drivingjobs.online",
         "toEmail": "={{ $json.Email }}",
         "subject": "=Unpaid Invoice Report: {{ $json.name }}",
         "text": "=Hi {{ $json.Owner || 'there' }},\n\nPlease find attached the unpaid invoice report for {{ $json.name }}.\n\nTotal Balance: {{ $json.balance }}\n\nRegards,\nAutomation Bot",
         "attachments": "data",
-        "options": {}
+        "options": {
+          "appendAttachingBinary": true
+        }
       },
       "id": "send-email",
-      "name": "Send Email",
+      "name": "Send Email (SMTP)",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
-      "position": [1520, 180]
+      "position": [1740, 100],
+      "credentials": {
+        "smtp": {
+          "id": "YOUR_SMTP_CREDENTIAL_ID",
+          "provider": "smtp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "parse-invoice-csv",
+      "name": "Parse Invoice CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "google-sheets",
+      "name": "Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1740, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_CREDENTIAL_ID",
+          "provider": "googleSheetsOAuth2Api"
+        }
+      }
     },
     {
       "parameters": {
@@ -192,11 +215,19 @@
     "Has Email?": {
       "main": [
         [{ "node": "Read Individual CSV", "type": "main", "index": 0 }],
-        [{ "node": "Log Missing Email", "type": "main", "index": 0 }]
+        []
       ]
     },
     "Read Individual CSV": {
-      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          { "node": "Send Email (SMTP)", "type": "main", "index": 0 },
+          { "node": "Parse Invoice CSV", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Parse Invoice CSV": {
+      "main": [[{ "node": "google-sheets", "type": "main", "index": 0 }]]
     },
     "Scraper Progress Webhook": {
       "main": [[{ "node": "Log Progress", "type": "main", "index": 0 }]]

@@ -29,8 +29,6 @@ services:
       - N8N_SECURE_COOKIE=false
       - GENERIC_TIMEZONE=Pacific/Auckland
       - TZ=Pacific/Auckland
-      - WEBHOOK_URL=https://n8n.fractio.services
-      - N8N_EDITOR_BASE_URL=https://n8n.fractio.services
     volumes:
       - n8n_data:/home/node/.n8n
       - scraper_output:/app/output
@@ -42,6 +40,7 @@ services:
 volumes:
   n8n_data:
   scraper_output:
+
 
 networks:
   towbook-net:
