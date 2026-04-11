@@ -19,7 +19,8 @@ services:
     image: n8nio/n8n:latest
     container_name: towbook-n8n
     restart: unless-stopped
-    # No ports here, only exposed via Caddy
+    ports:
+      - "5678:5678"
     env_file: .env
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
@@ -38,27 +39,9 @@ services:
     depends_on:
       - scraper
 
-  caddy:
-    image: caddy:latest
-    container_name: towbook-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - towbook-net
-    depends_on:
-      - n8n
-
 volumes:
   n8n_data:
   scraper_output:
-  caddy_data:
-  caddy_config:
 
 networks:
   towbook-net:
