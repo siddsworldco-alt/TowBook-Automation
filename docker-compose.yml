@@ -10,14 +10,13 @@ services:
       - "5050:5050"
     volumes:
       - scraper_output:/app/output
-      - ./contacts.csv:/app/output/contacts.csv:ro
     shm_size: '2gb'
     networks:
       - towbook-net
 
   n8n:
     image: n8nio/n8n:latest
-    container_name: towbook-n8n
+    container_name: n8n-server
     restart: unless-stopped
     ports:
       - "5678:5678"
@@ -27,8 +26,10 @@ services:
       - N8N_BASIC_AUTH_USER=${N8N_ADMIN_USER:-admin}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_ADMIN_PASSWORD:-changeme123}
       - N8N_SECURE_COOKIE=false
-      - GENERIC_TIMEZONE=Pacific/Auckland
-      - TZ=Pacific/Auckland
+      - GENERIC_TIMEZONE=America/New_York
+      - TZ=America/New_York
+      - WEBHOOK_URL=https://n8n.fractio.services
+      - N8N_EDITOR_BASE_URL=https://n8n.fractio.services
     volumes:
       - n8n_data:/home/node/.n8n
       - scraper_output:/app/output
